@@ -578,7 +578,23 @@ document.getElementById("btnConfirmSave").addEventListener("click", async () => 
   }
 });
 
+// Tạo mã định danh ngầm trên trình duyệt để nhận diện chính chủ tạo đội hình
+function getCreatorToken() {
+  let token = localStorage.getItem("lineupCreatorToken");
+  if (!token) {
+    token = "owner_" + Math.random().toString(36).substring(2, 12) + "_" + Date.now();
+    localStorage.setItem("lineupCreatorToken", token);
+  }
+  return token;
+}
+
 async function saveLineupToServer(lineup){
+  // Gắn mã chính chủ và khởi tạo bộ đếm khi tạo đội hình mới
+  lineup.creatorToken = getCreatorToken();
+  lineup.likes = 0;
+  lineup.dislikes = 0;
+  lineup.comments = {};
+
   if (isFirebaseEnabled){
     const res = await fetch(`${FB_BASE}/lineups.json`, {
       method: "POST",
@@ -599,7 +615,7 @@ async function saveLineupToServer(lineup){
 }
 
 /* =====================================================================
-   9) KHO ĐỘI HÌNH CỘNG ĐỒNG
+   9) KHO ĐỘI HÌNH CỘNG ĐỒNG (LIKE, DISLIKE, BÌNH LUẬN, XÓA CHÍNH CHỦ)
    ===================================================================== */
 document.getElementById("btnCommunity").addEventListener("click", async () => {
   openModal("communityModal");
@@ -617,7 +633,6 @@ async function fetchCommunityLineups(){
   }
 }
 
-// Hàm lưu lượt Like / Không Like lên Firebase hoặc localStorage
 async function updateLineupVotes(lineupId, likes, dislikes) {
   if (isFirebaseEnabled) {
     const res = await fetch(`${FB_BASE}/lineups/${lineupId}.json`, {
@@ -634,6 +649,50 @@ async function updateLineupVotes(lineupId, likes, dislikes) {
       localStorage.setItem("communityLineups", JSON.stringify(all));
     }
   }
+}
+
+async function deleteCommunityLineup(lineupId) {
+  if (isFirebaseEnabled) {
+    const res = await fetch(`${FB_BASE}/lineups/${lineupId}.json`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Firebase DELETE failed");
+  } else {
+    const all = JSON.parse(localStorage.getItem("communityLineups") || "{}");
+    delete all[lineupId];
+    localStorage.setItem("communityLineups", JSON.stringify(all));
+  }
+}
+
+async function postLineupComment(lineupId, commentObj) {
+  if (isFirebaseEnabled) {
+    const res = await fetch(`${FB_BASE}/lineups/${lineupId}/comments.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(commentObj),
+    });
+    if (!res.ok) throw new Error("Firebase Comment POST failed");
+    const data = await res.json();
+    return data.name;
+  } else {
+    const all = JSON.parse(localStorage.getItem("communityLineups") || "{}");
+    const cid = "cmt_" + Date.now();
+    if (all[lineupId]) {
+      if (!all[lineupId].comments) all[lineupId].comments = {};
+      all[lineupId].comments[cid] = commentObj;
+      localStorage.setItem("communityLineups", JSON.stringify(all));
+    }
+    return cid;
+  }
+}
+
+// Hàm chống lỗi hiển thị khi người dùng gõ ký tự đặc biệt vào bình luận
+function escapeHTML(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function loadCommunityList(){
@@ -657,17 +716,22 @@ async function loadCommunityList(){
     return;
   }
 
-  // Lấy lịch sử bấm Like/Dislike của người dùng trên trình duyệt để chống spam
   const userVotes = JSON.parse(localStorage.getItem("userLineupVotes") || "{}");
+  const myToken = getCreatorToken();
 
   container.innerHTML = "";
   entries.forEach(lineup => {
     lineup.likes = Number(lineup.likes || 0);
     lineup.dislikes = Number(lineup.dislikes || 0);
-    const currentVote = userVotes[lineup.id] || null; // 'like' | 'dislike' | null
+    const commentsObj = lineup.comments || {};
+    let commentsList = Object.entries(commentsObj).map(([cid, cval]) => ({ cid, ...cval }));
+    commentsList.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+    const currentVote = userVotes[lineup.id] || null;
+    const isOwner = Boolean(lineup.creatorToken && lineup.creatorToken === myToken);
 
     const card = document.createElement("div");
-    card.className = "bg-slate-800/70 border border-slate-700 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-3";
+    card.className = "bg-slate-800/70 border border-slate-700 rounded-xl p-3 flex flex-col gap-3 transition";
 
     const miniBoard = (lineup.heroes || new Array(6).fill(null)).map(id => {
       const hero = id ? getHeroById(id) : null;
@@ -679,45 +743,144 @@ async function loadCommunityList(){
 
     const date = lineup.createdAt ? new Date(lineup.createdAt).toLocaleString("vi-VN") : "";
 
-    // Nút Like & Không Like được vẽ trực tiếp bằng tọa độ vector SVG thuần
     card.innerHTML = `
-      <div class="grid grid-cols-2 gap-1 w-fit mx-auto sm:mx-0">${miniBoard}</div>
-      <div class="flex-1 min-w-0">
-        <p class="font-bold text-amber-300 text-sm truncate">${lineup.name || "Đội hình không tên"}</p>
-        <p class="text-xs text-slate-400 truncate">Người tạo: ${lineup.author || "Ẩn danh"} ${date ? "• " + date : ""}</p>
+      <!-- Hàng thông tin chính của Đội hình -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div class="grid grid-cols-2 gap-1 w-fit mx-auto sm:mx-0 shrink-0">${miniBoard}</div>
         
-        <div class="flex items-center gap-2 mt-2">
-          <button class="btn-like flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
-            currentVote === 'like'
-              ? 'bg-sky-600/30 border-sky-400 text-sky-300'
-              : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
-          }" title="Đồng tình đội hình này">
-            <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
-              <path d="M2 20h2c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1H2v11zm19.83-7.12c.11-.25.17-.52.17-.8V11c0-1.1-.9-2-2-2h-5.5l.92-4.65c.05-.22.02-.46-.08-.66-.23-.45-.52-.86-.88-1.22L14 2 7.59 8.41C7.21 8.79 7 9.3 7 9.83v7.84C7 18.95 8.05 20 9.34 20h8.11c.7 0 1.36-.37 1.72-.97l2.66-6.15z"/>
-            </svg>
-            <span class="like-count">${lineup.likes}</span>
-          </button>
+        <div class="flex-1 min-w-0">
+          <p class="lineup-title font-bold text-amber-300 text-sm truncate cursor-pointer hover:underline" title="Bấm để xem bình luận">${escapeHTML(lineup.name || "Đội hình không tên")}</p>
+          <p class="text-xs text-slate-400 truncate">Người tạo: ${escapeHTML(lineup.author || "Ẩn danh")} ${date ? "• " + date : ""}</p>
+          
+          <!-- Thanh thống kê: Like, Dislike, Bình luận -->
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <button class="btn-like flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+              currentVote === 'like'
+                ? 'bg-sky-600/30 border-sky-400 text-sky-300'
+                : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
+            }" title="Đồng tình đội hình này">
+              <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                <path d="M2 20h2c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1H2v11zm19.83-7.12c.11-.25.17-.52.17-.8V11c0-1.1-.9-2-2-2h-5.5l.92-4.65c.05-.22.02-.46-.08-.66-.23-.45-.52-.86-.88-1.22L14 2 7.59 8.41C7.21 8.79 7 9.3 7 9.83v7.84C7 18.95 8.05 20 9.34 20h8.11c.7 0 1.36-.37 1.72-.97l2.66-6.15z"/>
+              </svg>
+              <span class="like-count">${lineup.likes}</span>
+            </button>
 
-          <button class="btn-dislike flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
-            currentVote === 'dislike'
-              ? 'bg-rose-600/30 border-rose-400 text-rose-300'
-              : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'
-          }" title="Không đồng tình">
-            <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
-              <path d="M22 4h-2c-.55 0-1 .45-1 1v9c0 .55.45 1 1 1h2V4zM2.17 11.12c-.11.25-.17.52-.17.8V13c0 1.1.9 2 2 2h5.5l-.92 4.65c-.05.22-.02.46.08.66.23.45.52.86.88 1.22L10 22l6.41-6.41c.38-.38.59-.89.59-1.42V6.34C17 5.05 15.95 4 14.66 4H6.55c-.7 0-1.36.37-1.72.97l-2.66 6.15z"/>
-            </svg>
-            <span class="dislike-count">${lineup.dislikes}</span>
-          </button>
+            <button class="btn-dislike flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+              currentVote === 'dislike'
+                ? 'bg-rose-600/30 border-rose-400 text-rose-300'
+                : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'
+            }" title="Không đồng tình">
+              <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                <path d="M22 4h-2c-.55 0-1 .45-1 1v9c0 .55.45 1 1 1h2V4zM2.17 11.12c-.11.25-.17.52-.17.8V13c0 1.1.9 2 2 2h5.5l-.92 4.65c-.05.22-.02.46.08.66.23.45.52.86.88 1.22L10 22l6.41-6.41c.38-.38.59-.89.59-1.42V6.34C17 5.05 15.95 4 14.66 4H6.55c-.7 0-1.36.37-1.72.97l-2.66 6.15z"/>
+              </svg>
+              <span class="dislike-count">${lineup.dislikes}</span>
+            </button>
+
+            <button class="btn-toggle-comments flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900/80 text-slate-300 hover:border-amber-400/60 hover:text-amber-300 text-xs font-bold transition" title="Bấm để xem và viết bình luận">
+              <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/>
+              </svg>
+              <span><span class="comment-count">${commentsList.length}</span> bình luận</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Cụm nút hành động -->
+        <div class="flex flex-wrap gap-1.5 shrink-0">
+          <button class="btn-apply px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold whitespace-nowrap">Xem / Áp dụng</button>
+          <button class="btn-copy px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-bold whitespace-nowrap">Copy Link</button>
+          ${isOwner ? `
+            <button class="btn-delete px-2.5 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white text-xs font-bold flex items-center gap-1 transition" title="Xóa đội hình của bạn">
+              <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+              </svg>
+              <span>Xóa</span>
+            </button>
+          ` : ""}
         </div>
       </div>
 
-      <div class="flex gap-2 shrink-0">
-        <button class="btn-apply px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold whitespace-nowrap">Xem / Áp dụng</button>
-        <button class="btn-copy px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-bold whitespace-nowrap">Copy Link</button>
+      <!-- Khung Bình Luận riêng của Đội hình (Mặc định ẩn, bấm vào mới mở) -->
+      <div class="comment-section hidden border-t border-slate-700/80 pt-3 mt-1 space-y-2.5">
+        <div class="comment-list space-y-2 max-h-48 overflow-y-auto scrollbar-thin pr-1"></div>
+        
+        <div class="flex flex-col sm:flex-row gap-2 pt-1">
+          <input type="text" maxlength="25" placeholder="Tên bạn (tùy chọn)" class="input-cmt-author sm:w-36 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 focus:border-amber-400 outline-none text-xs text-slate-200">
+          <div class="flex flex-1 gap-2">
+            <input type="text" maxlength="200" placeholder="Viết bình luận góp ý cho đội hình này..." class="input-cmt-text flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 focus:border-amber-400 outline-none text-xs text-slate-200">
+            <button class="btn-send-cmt px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-xs whitespace-nowrap transition">Gửi</button>
+          </div>
+        </div>
       </div>
     `;
 
-    // Xử lý sự kiện bấm Like / Không Like
+    // Render danh sách bình luận bên trong đội hình
+    const commentListEl = card.querySelector(".comment-list");
+    const commentCountEl = card.querySelector(".comment-count");
+
+    function renderCommentsUI() {
+      commentCountEl.textContent = commentsList.length;
+      if (commentsList.length === 0) {
+        commentListEl.innerHTML = `<p class="text-xs text-slate-500 italic py-2 text-center">Chưa có bình luận nào cho đội hình này. Hãy để lại bình luận đầu tiên!</p>`;
+        return;
+      }
+      commentListEl.innerHTML = commentsList.map(c => {
+        const cTime = c.createdAt ? new Date(c.createdAt).toLocaleString("vi-VN") : "";
+        return `
+          <div class="bg-slate-900/70 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-bold text-amber-400">${escapeHTML(c.author || "Ẩn danh")}</span>
+              <span class="text-[10px] text-slate-500">${cTime}</span>
+            </div>
+            <p class="text-slate-200 mt-0.5 break-words">${escapeHTML(c.text)}</p>
+          </div>
+        `;
+      }).join("");
+      commentListEl.scrollTop = commentListEl.scrollHeight;
+    }
+    renderCommentsUI();
+
+    // Ẩn / Hiện khung bình luận khi bấm vào nút Bình luận hoặc tên đội hình
+    const commentSection = card.querySelector(".comment-section");
+    const toggleComments = () => {
+      commentSection.classList.toggle("hidden");
+    };
+    card.querySelector(".btn-toggle-comments").addEventListener("click", toggleComments);
+    card.querySelector(".lineup-title").addEventListener("click", toggleComments);
+
+    // Gửi bình luận mới
+    const inputAuthor = card.querySelector(".input-cmt-author");
+    const inputText = card.querySelector(".input-cmt-text");
+    const btnSendCmt = card.querySelector(".btn-send-cmt");
+
+    async function handleSendComment() {
+      const text = inputText.value.trim();
+      const author = inputAuthor.value.trim() || "Ẩn danh";
+      if (!text) {
+        showToast("Vui lòng nhập nội dung bình luận!", "error");
+        return;
+      }
+      btnSendCmt.disabled = true;
+      const newCmt = { author, text, createdAt: Date.now() };
+      try {
+        const cid = await postLineupComment(lineup.id, newCmt);
+        commentsList.push({ cid, ...newCmt });
+        inputText.value = "";
+        renderCommentsUI();
+        showToast("Đã gửi bình luận!", "success");
+      } catch (err) {
+        showToast("Lỗi khi gửi bình luận!", "error");
+      } finally {
+        btnSendCmt.disabled = false;
+      }
+    }
+
+    btnSendCmt.addEventListener("click", handleSendComment);
+    inputText.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleSendComment();
+    });
+
+    // Xử lý nút Like / Dislike
     const btnLike = card.querySelector(".btn-like");
     const btnDislike = card.querySelector(".btn-dislike");
     const likeCountEl = card.querySelector(".like-count");
@@ -728,12 +891,10 @@ async function loadCommunityList(){
       const prev = votes[lineup.id] || null;
 
       if (prev === type) {
-        // Bấm lại vào nút đã chọn -> Hủy chọn
         if (type === "like") lineup.likes = Math.max(0, lineup.likes - 1);
         else lineup.dislikes = Math.max(0, lineup.dislikes - 1);
         delete votes[lineup.id];
       } else {
-        // Đổi từ nút kia sang hoặc bấm mới
         if (prev === "like") lineup.likes = Math.max(0, lineup.likes - 1);
         if (prev === "dislike") lineup.dislikes = Math.max(0, lineup.dislikes - 1);
         if (type === "like") lineup.likes += 1;
@@ -744,7 +905,6 @@ async function loadCommunityList(){
       localStorage.setItem("userLineupVotes", JSON.stringify(votes));
       const nowVote = votes[lineup.id] || null;
 
-      // Cập nhật số lượng và màu nút ngay lập tức
       likeCountEl.textContent = lineup.likes;
       dislikeCountEl.textContent = lineup.dislikes;
 
@@ -762,12 +922,27 @@ async function loadCommunityList(){
       try {
         await updateLineupVotes(lineup.id, lineup.likes, lineup.dislikes);
       } catch (err) {
-        showToast("Lỗi lưu bình chọn lên máy chủ!", "error");
+        showToast("Lỗi lưu bình chọn!", "error");
       }
     }
 
     btnLike.addEventListener("click", () => handleVote("like"));
     btnDislike.addEventListener("click", () => handleVote("dislike"));
+
+    // Xử lý nút Xóa (Chỉ hiện và hoạt động với người tạo ra đội hình đó)
+    const btnDelete = card.querySelector(".btn-delete");
+    if (btnDelete && isOwner) {
+      btnDelete.addEventListener("click", async () => {
+        if (!confirm(`Bạn có chắc muốn xóa đội hình "${lineup.name}" của mình?`)) return;
+        try {
+          await deleteCommunityLineup(lineup.id);
+          card.remove();
+          showToast("Đã xóa đội hình của bạn!", "success");
+        } catch (err) {
+          showToast("Không thể xóa đội hình!", "error");
+        }
+      });
+    }
 
     card.querySelector(".btn-apply").addEventListener("click", () => {
       boardSlots = new Array(6).fill(null).map((_, i) => (lineup.heroes && lineup.heroes[i]) || null);
