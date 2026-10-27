@@ -1,0 +1,811 @@
+=<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Xếp Đội Hình & Chia Sẻ Đội Hình</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style>
+  body{
+    background: radial-gradient(circle at 50% 0%, #1e2749 0%, #0b0f1f 55%, #05060d 100%);
+    min-height: 100vh;
+  }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:#4b5563; border-radius:4px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+
+  .slot-dragover{
+    outline: 3px dashed #fbbf24 !important;
+    outline-offset: -3px;
+    background-color: rgba(251,191,36,0.12) !important;
+  }
+  .slot-selected{
+    outline: 3px solid #38bdf8 !important;
+    outline-offset: -3px;
+    box-shadow: 0 0 14px 2px rgba(56,189,248,0.6);
+  }
+  .hero-card{ transition: transform .15s ease, box-shadow .15s ease; }
+  .hero-card:active{ transform: scale(0.95); }
+  .fade-in{ animation: fadeIn .2s ease; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .board-slot-img{ object-fit: cover; }
+  .scrollbar-thin::-webkit-scrollbar{ width:6px; }
+  .toast{ animation: toastIn .25s ease, toastOut .25s ease 2.6s forwards; }
+  @keyframes toastIn{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes toastOut{ from{opacity:1;} to{opacity:0; transform:translateY(10px);} }
+</style>
+</head>
+<body class="text-slate-100 font-sans pb-10">
+
+<!-- ===================== HEADER ===================== -->
+<header class="sticky top-0 z-30 backdrop-blur bg-slate-950/70 border-b border-amber-500/20 shadow-lg">
+  <div class="max-w-6xl mx-auto px-3 py-3 flex items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center text-lg font-black text-slate-900 shadow">⚔</div>
+      <div>
+        <h1 class="text-sm sm:text-lg font-extrabold tracking-wide text-amber-300 leading-none">XẾP ĐỘI HÌNH & CHIA SẺ ĐỘI HÌNH</h1>
+        <p class="text-[10px] sm:text-xs text-slate-400">Kéo thả hoặc chạm để xếp tướng • Chia sẻ link cho cộng đồng</p>
+      </div>
+    </div>
+    <button id="btnCopyHeaderLink" class="text-xs sm:text-sm px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 whitespace-nowrap">🔗 Copy Link</button>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-3 mt-4 space-y-6">
+
+  <!-- ===================== BOARD ===================== -->
+  <section class="bg-slate-900/60 border border-amber-500/20 rounded-2xl p-3 sm:p-5 shadow-xl">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-amber-300 font-bold text-sm sm:text-base">✍️ Đội Hình</h2>
+      <p class="text-[11px] sm:text-xs text-slate-400 hidden sm:block">💡 Chạm 1 ô rồi chạm ô khác để hoán đổi vị trí</p>
+    </div>
+
+    <div class="max-w-xs sm:max-w-sm mx-auto">
+      <div class="grid grid-cols-2 gap-2 mb-1 text-center">
+        <span class="text-[11px] sm:text-xs font-semibold text-sky-300 uppercase tracking-wider">Hàng Sau</span>
+        <span class="text-[11px] sm:text-xs font-semibold text-rose-300 uppercase tracking-wider">Hàng Trước</span>
+      </div>
+      <div id="boardGrid" class="grid grid-cols-2 grid-rows-3 gap-2 sm:gap-3"></div>
+    </div>
+
+    <p class="text-[11px] text-slate-400 text-center mt-3 sm:hidden">💡 Chạm 1 ô rồi chạm ô khác để hoán đổi vị trí tướng</p>
+  </section>
+
+  <!-- ===================== FILTER ===================== -->
+  <section class="bg-slate-900/60 border border-amber-500/20 rounded-2xl p-3 sm:p-4 shadow-xl">
+    <div id="filterBar" class="flex flex-wrap items-center justify-center gap-2"></div>
+  </section>
+
+  <!-- ===================== HERO LIST ===================== -->
+  <section class="bg-slate-900/60 border border-amber-500/20 rounded-2xl p-3 sm:p-5 shadow-xl">
+    <h2 class="text-amber-300 font-bold text-sm sm:text-base mb-3">📜 Danh Sách Tướng</h2>
+    <div id="heroGrid" class="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 sm:gap-3"></div>
+  </section>
+
+  <!-- ===================== CONTROLS ===================== -->
+  <section class="bg-slate-900/60 border border-amber-500/20 rounded-2xl p-3 sm:p-5 shadow-xl">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+      <button id="btnReset" class="px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-sm shadow transition">🗑 Xóa Nhanh / Bày Trận Lại</button>
+      <button id="btnSave" class="px-4 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 font-bold text-sm shadow transition text-slate-900">💾 Lưu & Đăng Đội Hình</button>
+      <button id="btnCommunity" class="px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-sm shadow transition">🌐 Kho Đội Hình Cộng Đồng</button>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== SAVE MODAL ===================== -->
+<div id="saveModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-3">
+  <div class="bg-slate-900 border border-amber-500/30 rounded-2xl w-full max-w-md p-5 shadow-2xl fade-in">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-amber-300 text-base">💾 Lưu & Đăng Đội Hình</h3>
+      <button class="modal-close text-slate-400 hover:text-white text-xl leading-none" data-target="saveModal">&times;</button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-400">Tên đội hình / Ghi chú đội hình</label>
+        <input id="inputLineupName" type="text" maxlength="60" placeholder="VD: Đội hình phản công PvP"
+          class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 focus:border-amber-400 outline-none text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-400">Tên người tạo (tùy chọn)</label>
+        <input id="inputAuthorName" type="text" maxlength="30" placeholder="VD: Tướng Quân A"
+          class="w-full mt-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 focus:border-amber-400 outline-none text-sm">
+      </div>
+      <button id="btnConfirmSave" class="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 font-bold text-slate-900 hover:from-amber-400 hover:to-orange-500 transition">Lưu Đội Hình</button>
+      <p id="saveStatusText" class="text-xs text-center text-slate-400 min-h-[16px]"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== COMMUNITY MODAL ===================== -->
+<div id="communityModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-3">
+  <div class="bg-slate-900 border border-indigo-500/30 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col p-5 shadow-2xl fade-in">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-indigo-300 text-base">🌐 Kho Đội Hình Cộng Đồng</h3>
+      <button class="modal-close text-slate-400 hover:text-white text-xl leading-none" data-target="communityModal">&times;</button>
+    </div>
+    <div id="communityList" class="space-y-3 overflow-y-auto scrollbar-thin pr-1 flex-1">
+      <p class="text-sm text-slate-400 text-center py-10">Đang tải...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toastContainer" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex flex-col gap-2 items-center"></div>
+
+<script>
+/* =====================================================================
+   1) CẤU HÌNH - BẠN CHỈ CẦN SỬA Ở ĐÂY
+   ===================================================================== */
+
+// Dán URL Firebase Realtime Database của bạn vào đây (xem hướng dẫn cuối file).
+// Để trống "" thì web tự dùng localStorage của trình duyệt để test.
+const FIREBASE_DB_URL = ""; // VD: "https://ten-du-an-default-rtdb.asia-southeast1.firebasedatabase.app"
+
+const HERO_LIST = [
+  // ================= HỆ THIÊN =================
+  { id: "ma-dong",            name: "Ma Đồng",            faction: "Thiên", rarity: "UR", image: "./images/ma-dong.png" },
+  { id: "ong-lac",            name: "Ông Lạc",            faction: "Thiên", rarity: "UR", image: "./images/ong-lac.png" },
+  { id: "tay-thi",            name: "Tây Thi",            faction: "Thiên", rarity: "UR", image: "./images/tay-thi.png" },
+  { id: "long-quan",          name: "Long Quân",          faction: "Thiên", rarity: "UR", image: "./images/long-quan.png" },
+
+  // ================= HỆ ĐỊA =================
+  { id: "dia-tang",           name: "Địa Tăng",           faction: "Địa",   rarity: "UR", image: "./images/dia-tang.png" },
+  { id: "duong-ngoc-hoan",    name: "Dương Ngọc Hoàn",    faction: "Địa",   rarity: "UR", image: "./images/duong-ngoc-hoan.png" },
+  { id: "ly-the-dan",         name: "Lý Thế Dân",         faction: "Địa",   rarity: "UR", image: "./images/ly-the-dan.png" },
+  { id: "ly-bach",            name: "Lý Bạch",            faction: "Địa",   rarity: "UR", image: "./images/ly-bach.png" },
+
+  // ================= HỆ HUYỀN =================
+  { id: "luu-bi",             name: "Lưu Bị",             faction: "Huyền", rarity: "UR", image: "./images/luu-bi.png" },
+  { id: "dieu-thuyen",        name: "Điêu Thuyền",        faction: "Huyền", rarity: "UR", image: "./images/dieu-thuyen.png" },
+  { id: "quan-vu",            name: "Quan Vũ",            faction: "Huyền", rarity: "UR", image: "./images/quan-vu.png" },
+  { id: "ton-sach",           name: "Tôn Sách",           faction: "Huyền", rarity: "UR", image: "./images/ton-sach.png" },
+
+  // ================= HỆ HOÀNG =================
+  { id: "linh-co",            name: "Linh Cơ",            faction: "Hoàng", rarity: "UR", image: "./images/linh-co.png" },
+  { id: "anh-si",             name: "Anh Si",             faction: "Hoàng", rarity: "UR", image: "./images/anh-si.png" },
+  { id: "ton-thuong-huong",   name: "Tôn Thượng Hương",   faction: "Hoàng", rarity: "UR", image: "./images/ton-thuong-huong.png" },
+  { id: "thai-su-tu",         name: "Thái Sử Từ",         faction: "Hoàng", rarity: "UR", image: "./images/thai-su-tu.png" },
+
+  // ================= HỆ TIÊN =================
+  { id: "na-tra",             name: "Na Tra",             faction: "Tiên",  rarity: "UR", image: "./images/na-tra.png" },
+  { id: "hang-nga",           name: "Hằng Nga",           faction: "Tiên",  rarity: "UR", image: "./images/hang-nga.png" },
+  { id: "duong-tien",         name: "Dương Tiễn",         faction: "Tiên",  rarity: "UR", image: "./images/duong-tien.png" },
+  { id: "ngo-khong",          name: "Ngộ Không",          faction: "Tiên",  rarity: "UR", image: "./images/ngo-khong.png" },
+  { id: "nguu-ma-vuong",      name: "Ngưu Ma Vương",      faction: "Tiên",  rarity: "UR", image: "./images/nguu-ma-vuong.png" },
+  { id: "cuu-thien-huyen-nu", name: "Cửu Thiên Huyền Nữ", faction: "Tiên",  rarity: "UR", image: "./images/cuu-thien-huyen-nu.png" },
+  { id: "hau-nghe",           name: "Hậu Nghệ",           faction: "Tiên",  rarity: "UR", image: "./images/hau-nghe.png" },
+
+  // ================= HỆ THẦN =================
+  { id: "kieu-tao-thao",      name: "Kiêu-Tào Tháo",      faction: "Thần",  rarity: "UR", image: "./images/kieu-tao-thao.png" }
+];
+
+
+const FACTIONS = ["Tất cả", "Thiên", "Địa", "Huyền", "Hoàng", "Tiên", "Thần"];
+
+const FACTION_STYLES = {
+  "Thiên": "bg-sky-600",
+  "Địa":   "bg-amber-700",
+  "Huyền": "bg-purple-700",
+  "Hoàng": "bg-yellow-600",
+  "Tiên":  "bg-emerald-600",
+  "Thần":  "bg-rose-700",
+};
+
+const RARITY_STYLES = {
+  "UR":  "bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900",
+  "SSR": "bg-gradient-to-r from-fuchsia-500 to-purple-600 text-white",
+};
+
+/* =====================================================================
+   2) STATE
+   ===================================================================== */
+let boardSlots = new Array(6).fill(null); // mỗi phần tử là hero.id hoặc null
+let currentFilter = "Tất cả";
+let selectedBoardIndex = null; // dùng cho click-to-swap / click-to-place
+
+const isFirebaseEnabled = FIREBASE_DB_URL.trim().length > 0;
+const FB_BASE = FIREBASE_DB_URL.replace(/\/$/, "");
+
+/* =====================================================================
+   3) HELPERS
+   ===================================================================== */
+function getHeroById(id){
+  return HERO_LIST.find(h => h.id === id) || null;
+}
+
+function placeholderImg(name){
+  return `https://placehold.co/200x200/1e293b/fbbf24?font=roboto&text=${encodeURIComponent(name)}`;
+}
+
+function showToast(message, type = "info"){
+  const colors = {
+    info: "bg-slate-800 border-slate-600",
+    success: "bg-emerald-700 border-emerald-500",
+    error: "bg-rose-700 border-rose-500",
+  };
+  const el = document.createElement("div");
+  el.className = `toast px-4 py-2 rounded-lg border text-sm shadow-lg ${colors[type] || colors.info}`;
+  el.textContent = message;
+  document.getElementById("toastContainer").appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function openModal(id){
+  const m = document.getElementById(id);
+  m.classList.remove("hidden");
+  m.classList.add("flex");
+}
+function closeModal(id){
+  const m = document.getElementById(id);
+  m.classList.add("hidden");
+  m.classList.remove("flex");
+}
+document.querySelectorAll(".modal-close").forEach(btn => {
+  btn.addEventListener("click", () => closeModal(btn.dataset.target));
+});
+document.querySelectorAll("#saveModal, #communityModal").forEach(modal => {
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(modal.id); });
+});
+
+/* =====================================================================
+   4) BOARD LOGIC
+   ===================================================================== */
+function isHeroOnBoard(heroId){
+  return boardSlots.indexOf(heroId);
+}
+
+function removeHeroAt(index){
+  boardSlots[index] = null;
+  if (selectedBoardIndex === index) selectedBoardIndex = null;
+  renderAll();
+}
+
+function swapSlots(i, j){
+  const tmp = boardSlots[i];
+  boardSlots[i] = boardSlots[j];
+  boardSlots[j] = tmp;
+  renderAll();
+}
+
+// Đặt heroId vào targetIndex. Nếu hero đã có ở vị trí khác trên bàn, sẽ hoán đổi.
+// Nếu targetIndex đang có tướng khác (và hero là tướng mới từ danh sách) tướng cũ sẽ bị gỡ xuống.
+function placeHeroAt(heroId, targetIndex){
+  const oldIndex = boardSlots.indexOf(heroId);
+  const occupant = boardSlots[targetIndex];
+  if (oldIndex !== -1 && oldIndex !== targetIndex){
+    boardSlots[oldIndex] = occupant; // tráo chỗ cho nhau
+  }
+  boardSlots[targetIndex] = heroId;
+  renderAll();
+}
+
+function onSlotClick(index){
+  if (selectedBoardIndex === null){
+    selectedBoardIndex = index;
+  } else if (selectedBoardIndex === index){
+    selectedBoardIndex = null;
+  } else {
+    swapSlots(selectedBoardIndex, index);
+    selectedBoardIndex = null;
+    return;
+  }
+  renderBoard();
+}
+
+function onHeroCardClick(heroId){
+  const onBoardIndex = boardSlots.indexOf(heroId);
+
+  if (selectedBoardIndex !== null){
+    placeHeroAt(heroId, selectedBoardIndex);
+    selectedBoardIndex = null;
+    return;
+  }
+
+  if (onBoardIndex !== -1){
+    removeHeroAt(onBoardIndex);
+    return;
+  }
+
+  const emptyIndex = boardSlots.indexOf(null);
+  if (emptyIndex === -1){
+    showToast("Đội hình đã đủ 6 tướng! Chạm 1 ô trên bàn cờ rồi chọn tướng mới để thay thế.", "error");
+    return;
+  }
+  placeHeroAt(heroId, emptyIndex);
+}
+
+/* ----- Drag & Drop (Desktop) ----- */
+function handleHeroDragStart(e, heroId){
+  e.dataTransfer.setData("text/plain", "hero|" + heroId);
+  e.dataTransfer.effectAllowed = "move";
+}
+function handleSlotDragStart(e, index){
+  if (boardSlots[index] === null){ e.preventDefault(); return; }
+  e.dataTransfer.setData("text/plain", "slot|" + index);
+  e.dataTransfer.effectAllowed = "move";
+}
+function handleSlotDragOver(e){
+  e.preventDefault();
+  e.currentTarget.classList.add("slot-dragover");
+}
+function handleSlotDragLeave(e){
+  e.currentTarget.classList.remove("slot-dragover");
+}
+function handleSlotDrop(e, index){
+  e.preventDefault();
+  e.currentTarget.classList.remove("slot-dragover");
+  const data = e.dataTransfer.getData("text/plain");
+  if (!data) return;
+  const [type, value] = data.split("|");
+  if (type === "hero"){
+    placeHeroAt(value, index);
+  } else if (type === "slot"){
+    const fromIndex = parseInt(value, 10);
+    if (fromIndex !== index) swapSlots(fromIndex, index);
+  }
+}
+
+/* =====================================================================
+   5) RENDER
+   ===================================================================== */
+function renderFilterBar(){
+  const bar = document.getElementById("filterBar");
+  bar.innerHTML = "";
+  FACTIONS.forEach(faction => {
+    const btn = document.createElement("button");
+    const isActive = currentFilter === faction;
+    btn.textContent = faction;
+    btn.className = `px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-semibold border transition
+      ${isActive
+        ? "bg-amber-500 text-slate-900 border-amber-400 shadow"
+        : "bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"}`;
+    btn.addEventListener("click", () => {
+      currentFilter = faction;
+      renderFilterBar();
+      renderHeroGrid();
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function renderBoard(){
+  const grid = document.getElementById("boardGrid");
+  grid.innerHTML = "";
+
+  for (let i = 0; i < 6; i++){
+    const heroId = boardSlots[i];
+    const hero = heroId ? getHeroById(heroId) : null;
+    const slot = document.createElement("div");
+    slot.dataset.index = i;
+    slot.className = `relative aspect-square rounded-xl border-2 flex items-center justify-center overflow-hidden select-none cursor-pointer transition
+      ${hero ? "border-solid border-amber-400/60 bg-slate-800" : "border-dashed border-slate-600 bg-slate-800/40"}
+      ${selectedBoardIndex === i ? "slot-selected" : ""}`;
+
+    slot.addEventListener("click", () => onSlotClick(i));
+    slot.addEventListener("dragover", handleSlotDragOver);
+    slot.addEventListener("dragleave", handleSlotDragLeave);
+    slot.addEventListener("drop", (e) => handleSlotDrop(e, i));
+
+    const VI_TRI_O = [4, 1, 5, 2, 6, 3]; 
+    const posBadge = `<span class="absolute top-1 left-1 text-[9px] sm:text-[10px] font-bold bg-black/60 text-amber-300 px-1.5 py-0.5 rounded z-10">#${VI_TRI_O[i]}</span>`;
+
+    if (hero){
+      slot.setAttribute("draggable", "true");
+      slot.addEventListener("dragstart", (e) => handleSlotDragStart(e, i));
+
+      slot.innerHTML = `
+        ${posBadge}
+        <button class="remove-btn absolute top-1 right-1 z-20 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center shadow">×</button>
+        <img src="${hero.image}" onerror="this.onerror=null;this.src='${placeholderImg(hero.name)}'" alt="${hero.name}" class="board-slot-img w-full h-full">
+        <div class="absolute top-1 left-1/2 -translate-x-1/2 translate-y-5 text-[8px] sm:hidden"></div>
+        <span class="absolute bottom-6 sm:bottom-7 left-1 text-[8px] sm:text-[10px] font-bold text-white px-1.5 py-0.5 rounded ${FACTION_STYLES[hero.faction]} z-10">${hero.faction}</span>
+        <span class="absolute bottom-6 sm:bottom-7 right-1 text-[8px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded ${RARITY_STYLES[hero.rarity]} z-10">${hero.rarity}</span>
+        <div class="absolute bottom-0 left-0 right-0 bg-black/70 text-center py-1 px-1 z-10">
+          <p class="text-[9px] sm:text-xs font-bold text-white truncate">${hero.name}</p>
+        </div>
+      `;
+      slot.querySelector(".remove-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeHeroAt(i);
+      });
+    } else {
+      slot.innerHTML = `
+        ${posBadge}
+        <div class="flex flex-col items-center text-slate-500">
+          <span class="text-2xl sm:text-3xl leading-none">+</span>
+          <span class="text-[9px] sm:text-[10px]">Trống</span>
+        </div>
+      `;
+    }
+
+    grid.appendChild(slot);
+  }
+
+  updateURLFromBoard();
+}
+
+function renderHeroGrid(){
+  const grid = document.getElementById("heroGrid");
+  grid.innerHTML = "";
+
+  const list = currentFilter === "Tất cả"
+    ? HERO_LIST
+    : HERO_LIST.filter(h => h.faction === currentFilter);
+
+  if (list.length === 0){
+    grid.innerHTML = `<p class="col-span-full text-center text-sm text-slate-400 py-6">Không có tướng nào thuộc hệ này.</p>`;
+    return;
+  }
+
+  list.forEach(hero => {
+    const isSelected = boardSlots.includes(hero.id);
+    const card = document.createElement("div");
+    card.className = `hero-card relative rounded-xl overflow-hidden border-2 cursor-pointer bg-slate-800 shadow
+      ${isSelected ? "border-emerald-400" : "border-slate-700 hover:border-amber-400"}`;
+    card.setAttribute("draggable", "true");
+
+    card.innerHTML = `
+      <div class="relative aspect-square">
+        <img src="${hero.image}" onerror="this.onerror=null;this.src='${placeholderImg(hero.name)}'" alt="${hero.name}" class="w-full h-full object-cover">
+        <span class="absolute top-1 left-1 text-[8px] sm:text-[10px] font-bold text-white px-1.5 py-0.5 rounded ${FACTION_STYLES[hero.faction]}">${hero.faction}</span>
+        <span class="absolute top-1 right-1 text-[8px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded ${RARITY_STYLES[hero.rarity]}">${hero.rarity}</span>
+        ${isSelected ? `
+          <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <span class="w-7 h-7 sm:w-9 sm:h-9 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-sm sm:text-lg shadow-lg">✓</span>
+          </div>` : ""}
+      </div>
+      <div class="bg-slate-900 text-center py-1 px-1">
+        <p class="text-[9px] sm:text-xs font-bold text-white truncate">${hero.name}</p>
+      </div>
+    `;
+
+    card.addEventListener("click", () => onHeroCardClick(hero.id));
+    card.addEventListener("dragstart", (e) => handleHeroDragStart(e, hero.id));
+
+    grid.appendChild(card);
+  });
+}
+
+function renderAll(){
+  renderBoard();
+  renderHeroGrid();
+}
+
+/* =====================================================================
+   6) RESET
+   ===================================================================== */
+document.getElementById("btnReset").addEventListener("click", () => {
+  if (boardSlots.every(s => s === null)){
+    showToast("Bàn cờ đang trống rồi!", "info");
+    return;
+  }
+  if (confirm("Bạn có chắc muốn xóa toàn bộ đội hình hiện tại để bày trận lại?")){
+    boardSlots = new Array(6).fill(null);
+    selectedBoardIndex = null;
+    renderAll();
+    showToast("Đã xóa trắng bàn cờ.", "success");
+  }
+});
+
+/* =====================================================================
+   7) URL ENCODE / DECODE
+   ===================================================================== */
+function encodeLineupToParam(slots){
+  return slots.map(id => id || "").join(",");
+}
+function decodeLineupFromParam(code){
+  const parts = code.split(",");
+  const arr = new Array(6).fill(null);
+  parts.forEach((id, idx) => {
+    if (idx < 6 && id && getHeroById(id)) arr[idx] = id;
+  });
+  return arr;
+}
+function updateURLFromBoard(){
+  const url = new URL(window.location.href);
+  if (boardSlots.some(s => s)){
+    url.searchParams.set("lineup", encodeLineupToParam(boardSlots));
+  } else {
+    url.searchParams.delete("lineup");
+  }
+  window.history.replaceState({}, "", url);
+}
+function loadLineupFromURLParams(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("lineup");
+  if (!code) return;
+  boardSlots = decodeLineupFromParam(code);
+}
+
+document.getElementById("btnCopyHeaderLink").addEventListener("click", async () => {
+  updateURLFromBoard();
+  try{
+    await navigator.clipboard.writeText(window.location.href);
+    showToast("Đã copy link đội hình hiện tại!", "success");
+  }catch(err){
+    showToast("Không thể copy tự động, hãy copy link thủ công.", "error");
+  }
+});
+
+/* =====================================================================
+   8) LƯU & ĐĂNG ĐỘI HÌNH
+   ===================================================================== */
+document.getElementById("btnSave").addEventListener("click", () => {
+  if (boardSlots.every(s => s === null)){
+    showToast("Hãy xếp ít nhất 1 tướng lên bàn cờ trước khi lưu!", "error");
+    return;
+  }
+  document.getElementById("inputLineupName").value = "";
+  document.getElementById("inputAuthorName").value = "";
+  document.getElementById("saveStatusText").textContent = "";
+  openModal("saveModal");
+});
+
+document.getElementById("btnConfirmSave").addEventListener("click", async () => {
+  const name = document.getElementById("inputLineupName").value.trim();
+  const author = document.getElementById("inputAuthorName").value.trim() || "Ẩn danh";
+  const statusEl = document.getElementById("saveStatusText");
+
+  if (!name){
+    statusEl.textContent = "Vui lòng nhập tên đội hình.";
+    statusEl.className = "text-xs text-center text-rose-400 min-h-[16px]";
+    return;
+  }
+
+  const lineup = {
+    name,
+    author,
+    heroes: [...boardSlots],
+    createdAt: Date.now(),
+  };
+
+  statusEl.textContent = "Đang lưu...";
+  statusEl.className = "text-xs text-center text-slate-400 min-h-[16px]";
+
+  try{
+    await saveLineupToServer(lineup);
+    statusEl.textContent = "Đã lưu thành công!";
+    statusEl.className = "text-xs text-center text-emerald-400 min-h-[16px]";
+    showToast("Đã đăng đội hình lên cộng đồng!", "success");
+    setTimeout(() => closeModal("saveModal"), 700);
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = "Lưu thất bại, vui lòng thử lại.";
+    statusEl.className = "text-xs text-center text-rose-400 min-h-[16px]";
+  }
+});
+
+async function saveLineupToServer(lineup){
+  if (isFirebaseEnabled){
+    const res = await fetch(`${FB_BASE}/lineups.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lineup),
+    });
+    if (!res.ok) throw new Error("Firebase POST failed");
+    const data = await res.json();
+    lineup.id = data.name;
+  } else {
+    const all = JSON.parse(localStorage.getItem("communityLineups") || "{}");
+    const id = "local_" + Date.now();
+    all[id] = lineup;
+    localStorage.setItem("communityLineups", JSON.stringify(all));
+    lineup.id = id;
+  }
+  return lineup;
+}
+
+/* =====================================================================
+   9) KHO ĐỘI HÌNH CỘNG ĐỒNG
+   ===================================================================== */
+document.getElementById("btnCommunity").addEventListener("click", async () => {
+  openModal("communityModal");
+  await loadCommunityList();
+});
+
+async function fetchCommunityLineups(){
+  if (isFirebaseEnabled){
+    const res = await fetch(`${FB_BASE}/lineups.json`);
+    if (!res.ok) throw new Error("Firebase GET failed");
+    const data = await res.json();
+    return data || {};
+  } else {
+    return JSON.parse(localStorage.getItem("communityLineups") || "{}");
+  }
+}
+
+// Hàm lưu lượt Like / Không Like lên Firebase hoặc localStorage
+async function updateLineupVotes(lineupId, likes, dislikes) {
+  if (isFirebaseEnabled) {
+    const res = await fetch(`${FB_BASE}/lineups/${lineupId}.json`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ likes, dislikes }),
+    });
+    if (!res.ok) throw new Error("Firebase PATCH failed");
+  } else {
+    const all = JSON.parse(localStorage.getItem("communityLineups") || "{}");
+    if (all[lineupId]) {
+      all[lineupId].likes = likes;
+      all[lineupId].dislikes = dislikes;
+      localStorage.setItem("communityLineups", JSON.stringify(all));
+    }
+  }
+}
+
+async function loadCommunityList(){
+  const container = document.getElementById("communityList");
+  container.innerHTML = `<p class="text-sm text-slate-400 text-center py-10">Đang tải...</p>`;
+
+  let data;
+  try{
+    data = await fetchCommunityLineups();
+  }catch(err){
+    console.error(err);
+    container.innerHTML = `<p class="text-sm text-rose-400 text-center py-10">Không thể tải dữ liệu từ máy chủ.</p>`;
+    return;
+  }
+
+  const entries = Object.entries(data || {}).map(([id, value]) => ({ id, ...value }));
+  entries.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  if (entries.length === 0){
+    container.innerHTML = `<p class="text-sm text-slate-400 text-center py-10">Chưa có đội hình nào được chia sẻ. Hãy là người đầu tiên!</p>`;
+    return;
+  }
+
+  // Lấy lịch sử bấm Like/Dislike của người dùng trên trình duyệt để chống spam
+  const userVotes = JSON.parse(localStorage.getItem("userLineupVotes") || "{}");
+
+  container.innerHTML = "";
+  entries.forEach(lineup => {
+    lineup.likes = Number(lineup.likes || 0);
+    lineup.dislikes = Number(lineup.dislikes || 0);
+    const currentVote = userVotes[lineup.id] || null; // 'like' | 'dislike' | null
+
+    const card = document.createElement("div");
+    card.className = "bg-slate-800/70 border border-slate-700 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-3";
+
+    const miniBoard = (lineup.heroes || new Array(6).fill(null)).map(id => {
+      const hero = id ? getHeroById(id) : null;
+      if (!hero){
+        return `<div class="w-7 h-7 sm:w-9 sm:h-9 rounded bg-slate-700 border border-slate-600"></div>`;
+      }
+      return `<img src="${hero.image}" onerror="this.onerror=null;this.src='${placeholderImg(hero.name)}'" title="${hero.name}" class="w-7 h-7 sm:w-9 sm:h-9 rounded object-cover border border-amber-400/50">`;
+    }).join("");
+
+    const date = lineup.createdAt ? new Date(lineup.createdAt).toLocaleString("vi-VN") : "";
+
+    // Nút Like & Không Like được vẽ trực tiếp bằng tọa độ vector SVG thuần
+    card.innerHTML = `
+      <div class="grid grid-cols-2 gap-1 w-fit mx-auto sm:mx-0">${miniBoard}</div>
+      <div class="flex-1 min-w-0">
+        <p class="font-bold text-amber-300 text-sm truncate">${lineup.name || "Đội hình không tên"}</p>
+        <p class="text-xs text-slate-400 truncate">Người tạo: ${lineup.author || "Ẩn danh"} ${date ? "• " + date : ""}</p>
+        
+        <div class="flex items-center gap-2 mt-2">
+          <button class="btn-like flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+            currentVote === 'like'
+              ? 'bg-sky-600/30 border-sky-400 text-sky-300'
+              : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
+          }" title="Đồng tình đội hình này">
+            <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+              <path d="M2 20h2c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1H2v11zm19.83-7.12c.11-.25.17-.52.17-.8V11c0-1.1-.9-2-2-2h-5.5l.92-4.65c.05-.22.02-.46-.08-.66-.23-.45-.52-.86-.88-1.22L14 2 7.59 8.41C7.21 8.79 7 9.3 7 9.83v7.84C7 18.95 8.05 20 9.34 20h8.11c.7 0 1.36-.37 1.72-.97l2.66-6.15z"/>
+            </svg>
+            <span class="like-count">${lineup.likes}</span>
+          </button>
+
+          <button class="btn-dislike flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+            currentVote === 'dislike'
+              ? 'bg-rose-600/30 border-rose-400 text-rose-300'
+              : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'
+          }" title="Không đồng tình">
+            <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 24 24">
+              <path d="M22 4h-2c-.55 0-1 .45-1 1v9c0 .55.45 1 1 1h2V4zM2.17 11.12c-.11.25-.17.52-.17.8V13c0 1.1.9 2 2 2h5.5l-.92 4.65c-.05.22-.02.46.08.66.23.45.52.86.88 1.22L10 22l6.41-6.41c.38-.38.59-.89.59-1.42V6.34C17 5.05 15.95 4 14.66 4H6.55c-.7 0-1.36.37-1.72.97l-2.66 6.15z"/>
+            </svg>
+            <span class="dislike-count">${lineup.dislikes}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex gap-2 shrink-0">
+        <button class="btn-apply px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold whitespace-nowrap">Xem / Áp dụng</button>
+        <button class="btn-copy px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-bold whitespace-nowrap">Copy Link</button>
+      </div>
+    `;
+
+    // Xử lý sự kiện bấm Like / Không Like
+    const btnLike = card.querySelector(".btn-like");
+    const btnDislike = card.querySelector(".btn-dislike");
+    const likeCountEl = card.querySelector(".like-count");
+    const dislikeCountEl = card.querySelector(".dislike-count");
+
+    async function handleVote(type) {
+      const votes = JSON.parse(localStorage.getItem("userLineupVotes") || "{}");
+      const prev = votes[lineup.id] || null;
+
+      if (prev === type) {
+        // Bấm lại vào nút đã chọn -> Hủy chọn
+        if (type === "like") lineup.likes = Math.max(0, lineup.likes - 1);
+        else lineup.dislikes = Math.max(0, lineup.dislikes - 1);
+        delete votes[lineup.id];
+      } else {
+        // Đổi từ nút kia sang hoặc bấm mới
+        if (prev === "like") lineup.likes = Math.max(0, lineup.likes - 1);
+        if (prev === "dislike") lineup.dislikes = Math.max(0, lineup.dislikes - 1);
+        if (type === "like") lineup.likes += 1;
+        else lineup.dislikes += 1;
+        votes[lineup.id] = type;
+      }
+
+      localStorage.setItem("userLineupVotes", JSON.stringify(votes));
+      const nowVote = votes[lineup.id] || null;
+
+      // Cập nhật số lượng và màu nút ngay lập tức
+      likeCountEl.textContent = lineup.likes;
+      dislikeCountEl.textContent = lineup.dislikes;
+
+      btnLike.className = `btn-like flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+        nowVote === 'like'
+          ? 'bg-sky-600/30 border-sky-400 text-sky-300'
+          : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-sky-500/50 hover:text-sky-300'
+      }`;
+      btnDislike.className = `btn-dislike flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+        nowVote === 'dislike'
+          ? 'bg-rose-600/30 border-rose-400 text-rose-300'
+          : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'
+      }`;
+
+      try {
+        await updateLineupVotes(lineup.id, lineup.likes, lineup.dislikes);
+      } catch (err) {
+        showToast("Lỗi lưu bình chọn lên máy chủ!", "error");
+      }
+    }
+
+    btnLike.addEventListener("click", () => handleVote("like"));
+    btnDislike.addEventListener("click", () => handleVote("dislike"));
+
+    card.querySelector(".btn-apply").addEventListener("click", () => {
+      boardSlots = new Array(6).fill(null).map((_, i) => (lineup.heroes && lineup.heroes[i]) || null);
+      selectedBoardIndex = null;
+      renderAll();
+      closeModal("communityModal");
+      showToast(`Đã áp dụng đội hình "${lineup.name}" lên bàn cờ!`, "success");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    card.querySelector(".btn-copy").addEventListener("click", async () => {
+      const url = new URL(window.location.origin + window.location.pathname);
+      url.searchParams.set("lineup", encodeLineupToParam(lineup.heroes || []));
+      try{
+        await navigator.clipboard.writeText(url.toString());
+        showToast("Đã copy link đội hình!", "success");
+      }catch(err){
+        showToast("Không thể copy tự động: " + url.toString(), "error");
+      }
+    });
+
+    container.appendChild(card);
+  });
+}
+
+/* =====================================================================
+   10) INIT
+   ===================================================================== */
+function init(){
+  loadLineupFromURLParams();
+  renderFilterBar();
+  renderAll();
+
+  if (!isFirebaseEnabled){
+    console.info("%cFIREBASE_DB_URL chưa được cấu hình — đang dùng localStorage để lưu đội hình cộng đồng (chỉ test trên trình duyệt của bạn).", "color:#fbbf24");
+  }
+}
+init();
+</script>
+</body>
+</html>
